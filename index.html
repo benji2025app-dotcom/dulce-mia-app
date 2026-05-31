@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>JustSteps · Solo salud</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    /* ── Base & reset ── */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; overscroll-behavior: none; }
+    * { -webkit-tap-highlight-color: transparent; }
+
+    /* ── Fuente redondeada de sistema ── */
+    body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Rounded', 'Segoe UI', system-ui, sans-serif; }
+
+    /* ── Anillo de progreso ── */
+    .ring-progress {
+      transition: stroke-dashoffset 0.9s cubic-bezier(.4,0,.2,1),
+                  stroke 0.6s ease;
+    }
+
+    /* ── Dog bounce ── */
+    @keyframes dogBounce {
+      0%, 100% { transform: translateY(0px) scaleY(1); }
+      45%       { transform: translateY(-7px) scaleY(1.04); }
+      55%       { transform: translateY(-7px) scaleY(1.04); }
+    }
+    @keyframes dogIdle {
+      0%, 100% { transform: translateY(0px); }
+      50%       { transform: translateY(-2px); }
+    }
+    .dog-walk { animation: dogBounce 0.52s ease-in-out infinite; }
+    .dog-idle { animation: dogIdle 2.4s ease-in-out infinite; }
+
+    /* ── Leg swing ── */
+    @keyframes legF  { 0%,100%{transform:rotate(0deg)} 50%{transform:rotate(28deg)} }
+    @keyframes legB  { 0%,100%{transform:rotate(0deg)} 50%{transform:rotate(-28deg)} }
+    .leg-f1 { animation: legF 0.52s ease-in-out infinite; transform-origin: top center; }
+    .leg-b1 { animation: legB 0.52s ease-in-out infinite; transform-origin: top center; }
+    .leg-f2 { animation: legB 0.52s ease-in-out infinite; transform-origin: top center; }
+    .leg-b2 { animation: legF 0.52s ease-in-out infinite; transform-origin: top center; }
+
+    /* ── Tail wag ── */
+    @keyframes tailWag {
+      0%,100%{ transform: rotate(-20deg); }
+      50%    { transform: rotate(25deg);  }
+    }
+    .tail-wag { animation: tailWag 0.35s ease-in-out infinite; transform-origin: 68% 38%; }
+    .tail-idle { animation: tailWag 1.8s ease-in-out infinite; transform-origin: 68% 38%; }
+
+    /* ── Alerta / shake ── */
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      12%,52% { transform: translateX(-6px); }
+      28%,68% { transform: translateX(6px);  }
+      85%      { transform: translateX(-3px); }
+    }
+    @keyframes heartbeat {
+      0%  { transform: scale(1); }
+      14% { transform: scale(1.06); }
+      28% { transform: scale(1); }
+      42% { transform: scale(1.06); }
+      56% { transform: scale(1); }
+    }
+    .card-shake    { animation: shake 0.55s ease 2; }
+    .card-heartbeat{ animation: heartbeat 0.6s ease 2; }
+
+    /* ── Notificación slide ── */
+    @keyframes notifIn  { from { transform:translateY(-110%); opacity:0; } to { transform:translateY(0); opacity:1; } }
+    @keyframes notifOut { from { transform:translateY(0); opacity:1; } to { transform:translateY(-110%); opacity:0; } }
+    .notif-in  { animation: notifIn  0.38s cubic-bezier(.34,1.56,.64,1) forwards; }
+    .notif-out { animation: notifOut 0.32s ease-in forwards; }
+
+    /* ── Celebración 10k ── */
+    @keyframes popIn {
+      0%   { transform: scale(0.5); opacity:0; }
+      60%  { transform: scale(1.15); opacity:1; }
+      100% { transform: scale(1);   opacity:1; }
+    }
+    @keyframes confettiFall {
+      0%   { transform: translateY(-20px) rotate(0deg);   opacity: 1; }
+      100% { transform: translateY(120px) rotate(720deg); opacity: 0; }
+    }
+    .celebrate-pop { animation: popIn 0.5s cubic-bezier(.34,1.56,.64,1) forwards; }
+    .confetti-piece { position:absolute; animation: confettiFall 1.4s ease-out forwards; }
+
+    /* ── Dorado 2ª vuelta ── */
+    @keyframes goldenPulse {
+      0%,100%{ filter: drop-shadow(0 0 6px rgba(201,146,42,0.4)); }
+      50%    { filter: drop-shadow(0 0 14px rgba(201,146,42,0.7)); }
+    }
+    .golden-ring { animation: goldenPulse 2s ease-in-out infinite; }
+
+    /* ── Paw print fade ── */
+    @keyframes pawFade {
+      0%   { opacity: 0.5; }
+      100% { opacity: 0; }
+    }
+
+    /* ── Button press ── */
+    .btn-press:active { transform: scale(0.92); }
+
+    /* ── Scrollbar hide ── */
+    ::-webkit-scrollbar { display: none; }
+
+    /* ── Gradient header ── */
+    .header-bg {
+      background: linear-gradient(180deg, rgba(253,248,244,1) 0%, rgba(255,255,255,0) 100%);
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+    /* ───────────────────────────────────────────
+       ICONS  (inline SVG — no extra dep)
+    ─────────────────────────────────────────── */
+    const MoonIcon = ({ size = 20, color = 'currentColor' }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+           stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    );
+
+    const SunIcon = ({ size = 20, color = 'currentColor' }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+           stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="5"/>
+        <line x1="12" y1="1" x2="12" y2="3"/>
+        <line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/>
+        <line x1="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>
+    );
+
+    const RotateCCWIcon = ({ size = 18, color = 'currentColor' }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+           stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="1 4 1 10 7 10"/>
+        <path d="M3.51 15a9 9 0 1 0 .49-3.21"/>
+      </svg>
+    );
+
+    const FootprintIcon = ({ size = 16, color = 'currentColor' }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill={color} stroke="none">
+        <ellipse cx="8.5" cy="7" rx="2.5" ry="3.5"/>
+        <ellipse cx="15.5" cy="5.5" rx="2" ry="3"/>
+        <ellipse cx="4.5" cy="13" rx="1.8" ry="2.5"/>
+        <ellipse cx="11" cy="12" rx="1.8" ry="2.5"/>
+        <path d="M7 17 C6 19 10 22 13 21 C16 20 17 16 15 15 C13 14 9 15 7 17Z"/>
+      </svg>
+    );
+
+    /* ───────────────────────────────────────────
+       LOKI  –  Yorkshire Terrier SVG
+    ─────────────────────────────────────────── */
+    const LokiSVG = ({ walking }) => {
+      const legsClass = walking
+        ? { lf1:'leg-f1', lb1:'leg-b1', lf2:'leg-f2', lb2:'leg-b2' }
+        : { lf1:'', lb1:'', lf2:'', lb2:'' };
+
+      return (
+        <svg width="88" height="72" viewBox="0 0 88 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* ─── Shadow ─── */}
+          <ellipse cx="44" cy="69" rx="24" ry="4" fill="rgba(0,0,0,0.06)"/>
+
+          {/* ─── Tail ─── */}
+          <g className={walking ? 'tail-wag' : 'tail-idle'}>
+            <path d="M18 34 C10 26 6 18 9 10 C10 7 13 7 14 10 C15 18 18 26 20 32Z"
+                  fill="#4A3010"/>
+            <path d="M9 10 C8 7 11 5 13 8 C15 11 13 15 11 12Z"
+                  fill="#7A5C20"/>
+          </g>
+
+          {/* ─── Body ─── */}
+          <ellipse cx="44" cy="36" rx="21" ry="14" fill="#3E3055"/>
+          {/* Body fur highlight */}
+          <ellipse cx="44" cy="30" rx="14" ry="7" fill="#4A3C66" opacity="0.6"/>
+          {/* Tan saddle */}
+          <ellipse cx="50" cy="38" rx="10" ry="8" fill="#A0701A"/>
+
+          {/* ─── Front legs ─── */}
+          <g className={legsClass.lf1}>
+            <rect x="32" y="46" width="7" height="18" rx="3.5" fill="#3E3055"/>
+            <rect x="32" y="58" width="7" height="6" rx="3" fill="#2A1F3D"/>
+          </g>
+          <g className={legsClass.lf2}>
+            <rect x="42" y="46" width="7" height="18" rx="3.5" fill="#3E3055"/>
+            <rect x="42" y="58" width="7" height="6" rx="3" fill="#2A1F3D"/>
+          </g>
+          {/* ─── Back legs ─── */}
+          <g className={legsClass.lb1}>
+            <rect x="52" y="46" width="7" height="18" rx="3.5" fill="#3E3055"/>
+            <rect x="52" y="58" width="7" height="6" rx="3" fill="#2A1F3D"/>
+          </g>
+          <g className={legsClass.lb2}>
+            <rect x="61" y="46" width="7" height="18" rx="3.5" fill="#3E3055"/>
+            <rect x="61" y="58" width="7" height="6" rx="3" fill="#2A1F3D"/>
+          </g>
+
+          {/* ─── Neck ─── */}
+          <ellipse cx="63" cy="30" rx="9" ry="10" fill="#A0701A"/>
+
+          {/* ─── Head ─── */}
+          <ellipse cx="68" cy="20" rx="12" ry="11" fill="#C4952A"/>
+          {/* Head top darker */}
+          <ellipse cx="68" cy="14" rx="9" ry="7" fill="#3E3055"/>
+
+          {/* ─── Ears ─── */}
+          <ellipse cx="59" cy="12" rx="5" ry="9" fill="#2A1F3D" transform="rotate(-12 59 12)"/>
+          <ellipse cx="77" cy="10" rx="5" ry="9" fill="#2A1F3D" transform="rotate(12 77 10)"/>
+          {/* Ear inner */}
+          <ellipse cx="59" cy="14" rx="2.5" ry="5" fill="#5C3A10" transform="rotate(-12 59 14)" opacity="0.7"/>
+          <ellipse cx="77" cy="12" rx="2.5" ry="5" fill="#5C3A10" transform="rotate(12 77 12)" opacity="0.7"/>
+
+          {/* ─── Face ─── */}
+          {/* Muzzle */}
+          <ellipse cx="75" cy="23" rx="7" ry="5.5" fill="#E8B040"/>
+          {/* Beard / chin fur */}
+          <ellipse cx="74" cy="27" rx="5" ry="4" fill="#D4A030"/>
+
+          {/* ─── Eyes ─── */}
+          <circle cx="64" cy="19" r="3.2" fill="#1A0A00"/>
+          <circle cx="64" cy="19" r="1.5" fill="#3D1F00"/>
+          <circle cx="65.2" cy="17.8" r="1" fill="white"/>
+          <circle cx="65.6" cy="17.4" r="0.4" fill="white"/>
+
+          {/* ─── Nose ─── */}
+          <ellipse cx="79" cy="22" rx="3" ry="2.2" fill="#1A0A00"/>
+          <ellipse cx="78.5" cy="21.4" rx="1" ry="0.6" fill="#4A3010" opacity="0.6"/>
+
+          {/* ─── Mouth / smile ─── */}
+          <path d="M76 25 Q78 27 80 25" stroke="#5C3A10" strokeWidth="1.2"
+                fill="none" strokeLinecap="round"/>
+          {/* Tongue (only when walking) */}
+          {walking && (
+            <ellipse cx="78" cy="27.5" rx="2" ry="1.5" fill="#E86060" opacity="0.9"/>
+          )}
+
+          {/* ─── Whiskers ─── */}
+          <line x1="80" y1="22" x2="87" y2="20" stroke="#D4A030" strokeWidth="0.8" opacity="0.6"/>
+          <line x1="80" y1="23" x2="87" y2="23" stroke="#D4A030" strokeWidth="0.8" opacity="0.6"/>
+          <line x1="80" y1="24" x2="87" y2="26" stroke="#D4A030" strokeWidth="0.8" opacity="0.6"/>
+
+          {/* ─── Body fur strands ─── */}
+          <path d="M30 36 Q32 30 35 34" stroke="#C4952A" strokeWidth="1.2"
+                fill="none" strokeLinecap="round" opacity="0.5"/>
+          <path d="M26 38 Q28 32 31 36" stroke="#C4952A" strokeWidth="1.2"
+                fill="none" strokeLinecap="round" opacity="0.4"/>
+        </svg>
+      );
+    };
+
+    /* ───────────────────────────────────────────
+       LOKI WALKING SCENE
+    ─────────────────────────────────────────── */
+    const LokiScene = ({ steps, walking }) => {
+      const progress = Math.min(steps / 10000, 1);
+      // Loki moves from ~5% to ~65% of container width
+      const posX = 5 + progress * 60;
+
+      // Paw print positions (trail behind Loki)
+      const pawPrints = useMemo(() => {
+        const arr = [];
+        for (let i = 1; i <= 5; i++) {
+          const px = posX - i * 9;
+          if (px > 0) arr.push({ id: i, x: px, flip: i % 2 === 0 });
+        }
+        return arr;
+      }, [posX]);
+
+      return (
+        <div className="relative w-full overflow-hidden" style={{ height: '80px' }}>
+          {/* Ground */}
+          <div className="absolute bottom-0 left-0 right-0 h-px" style={{ background: '#EDE5DF' }}/>
+
+          {/* Paw prints */}
+          {pawPrints.map(p => (
+            <div
+              key={p.id}
+              className="absolute"
+              style={{
+                left: `${p.x}%`,
+                bottom: '6px',
+                opacity: Math.max(0, 0.35 - p.id * 0.06),
+                transform: p.flip ? 'scaleX(-1) translateX(-50%)' : 'translateX(-50%)',
+                transition: 'left 1.2s cubic-bezier(.4,0,.2,1)'
+              }}
+            >
+              <FootprintIcon size={12} color="#A63F24"/>
+            </div>
+          ))}
+
+          {/* Loki */}
+          <div
+            className={`absolute bottom-1 transition-all duration-1000 ease-in-out ${walking ? 'dog-walk' : 'dog-idle'}`}
+            style={{ left: `${posX}%`, transform: 'translateX(-50%)' }}
+          >
+            <LokiSVG walking={walking}/>
+          </div>
+
+          {/* Label */}
+          <div className="absolute top-1 left-3 flex items-center gap-1">
+            <span className="text-xs font-bold" style={{ color: '#C4952A', letterSpacing: '0.05em' }}>
+              LOKI
+            </span>
+            <span className="text-xs" style={{ color: '#D1C5BE' }}>
+              {walking ? '— corriendo 🐾' : '— esperando'}
+            </span>
+          </div>
+        </div>
+      );
+    };
+
+    /* ───────────────────────────────────────────
+       CIRCULAR PROGRESS RING
+    ─────────────────────────────────────────── */
+    const ProgressRing = ({ steps, celebrating }) => {
+      const SIZE = 272;
+      const SW   = 18;
+      const R    = (SIZE - SW) / 2;
+      const CIRC = 2 * Math.PI * R;
+
+      const isSecondLap = steps > 10000;
+      const rawProg     = isSecondLap ? (steps - 10000) / 10000 : steps / 10000;
+      const prog        = Math.min(rawProg, 1);
+      const offset      = CIRC * (1 - prog);
+
+      const ringColor   = isSecondLap ? '#C9922A' : '#A63F24';
+      const numColor    = isSecondLap ? '#C9922A' : '#A63F24';
+      const glowColor   = isSecondLap
+        ? 'rgba(201,146,42,0.35)'
+        : 'rgba(166,63,36,0.22)';
+
+      const stepsDisplay = steps.toLocaleString('es-ES');
+      const fontSize = steps >= 100000 ? '2rem' : steps >= 10000 ? '2.6rem' : '3.2rem';
+
+      const remaining = 10000 - steps;
+      const extraSteps = steps - 10000;
+
+      return (
+        <div className="relative flex items-center justify-center">
+          {/* Outer decorative ring */}
+          <div
+            className="absolute rounded-full"
+            style={{
+              width: SIZE + 24,
+              height: SIZE + 24,
+              background: 'radial-gradient(circle, #FDFAF8 60%, #F5EDE6 100%)',
+              boxShadow: '0 8px 40px rgba(166,63,36,0.08), 0 2px 12px rgba(0,0,0,0.04)'
+            }}
+          />
+
+          <svg
+            width={SIZE} height={SIZE}
+            viewBox={`0 0 ${SIZE} ${SIZE}`}
+            className={isSecondLap ? 'golden-ring' : ''}
+          >
+            <defs>
+              <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor={isSecondLap ? '#E8B040' : '#C94E29'}/>
+                <stop offset="100%" stopColor={ringColor}/>
+              </linearGradient>
+              <filter id="ringGlow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/>
+                <feMerge>
+                  <feMergeNode in="blur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+            </defs>
+
+            {/* Track */}
+            <circle
+              cx={SIZE/2} cy={SIZE/2} r={R}
+              stroke="#EDE5DF" strokeWidth={SW}
+              fill="none"
+            />
+
+            {/* Completed first lap indicator (second lap only) */}
+            {isSecondLap && (
+              <circle
+                cx={SIZE/2} cy={SIZE/2} r={R - SW - 6}
+                stroke="#A63F24" strokeWidth={2}
+                fill="none"
+                strokeDasharray="5 9"
+                opacity={0.25}
+              />
+            )}
+
+            {/* Progress arc */}
+            {prog > 0 && (
+              <circle
+                cx={SIZE/2} cy={SIZE/2} r={R}
+                stroke="url(#ringGrad)"
+                strokeWidth={SW}
+                fill="none"
+                strokeDasharray={CIRC}
+                strokeDashoffset={offset}
+                strokeLinecap="round"
+                transform={`rotate(-90 ${SIZE/2} ${SIZE/2})`}
+                className="ring-progress"
+                filter={prog > 0.05 ? 'url(#ringGlow)' : undefined}
+                style={{ filter: prog > 0.05 ? `drop-shadow(0 0 8px ${glowColor})` : 'none' }}
+              />
+            )}
+
+            {/* Tip dot */}
+            {prog > 0.02 && prog < 1 && (() => {
+              const angle = -Math.PI / 2 + prog * 2 * Math.PI;
+              const tx = SIZE/2 + R * Math.cos(angle);
+              const ty = SIZE/2 + R * Math.sin(angle);
+              return (
+                <circle
+                  cx={tx} cy={ty} r={SW/2 - 2}
+                  fill={isSecondLap ? '#C9922A' : '#A63F24'}
+                  style={{ filter: `drop-shadow(0 0 4px ${glowColor})` }}
+                />
+              );
+            })()}
+          </svg>
+
+          {/* Inner content */}
+          <div
+            className="absolute flex flex-col items-center justify-center"
+            style={{ width: SIZE - SW*2 - 16 }}
+          >
+            {isSecondLap && (
+              <div
+                className="text-xs font-black mb-1 px-2 py-0.5 rounded-full"
+                style={{
+                  color: '#C9922A',
+                  background: 'rgba(201,146,42,0.1)',
+                  letterSpacing: '0.12em'
+                }}
+              >
+                ✦ 2ª VUELTA ✦
+              </div>
+            )}
+
+            <div
+              className="font-black leading-none tabular-nums"
+              style={{
+                fontSize,
+                color: numColor,
+                letterSpacing: '-0.03em',
+                textShadow: isSecondLap ? '0 2px 12px rgba(201,146,42,0.25)' : 'none'
+              }}
+            >
+              {stepsDisplay}
+            </div>
+
+            <div
+              className="text-xs font-bold mt-1 tracking-widest"
+              style={{ color: '#B8ADA8' }}
+            >
+              PASOS
+            </div>
+
+            <div className="mt-3 text-center">
+              {steps >= 10000 ? (
+                <div
+                  className="text-xs font-bold px-3 py-1 rounded-full"
+                  style={{
+                    background: isSecondLap ? 'rgba(201,146,42,0.1)' : 'rgba(74,89,61,0.1)',
+                    color: isSecondLap ? '#A87820' : '#4A593D'
+                  }}
+                >
+                  {isSecondLap
+                    ? `+${extraSteps.toLocaleString('es-ES')} extra 🔥`
+                    : '¡Meta conseguida! 🎉'}
+                </div>
+              ) : (
+                <div className="text-xs font-medium" style={{ color: '#C4B8B2' }}>
+                  {remaining.toLocaleString('es-ES')} para tu meta
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    /* ───────────────────────────────────────────
+       CONFETTI  (celebración 10k)
+    ─────────────────────────────────────────── */
+    const CONFETTI_COLORS = ['#A63F24','#C9922A','#4A593D','#E8B040','#C4952A','#6B8C60'];
+
+    const Confetti = () => {
+      const pieces = useMemo(() =>
+        [...Array(22)].map((_, i) => ({
+          id: i,
+          left: `${Math.random() * 100}%`,
+          delay: `${Math.random() * 0.6}s`,
+          color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+          size: 6 + Math.random() * 8,
+          rotate: Math.random() * 360,
+        })), []);
+
+      return (
+        <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl">
+          {pieces.map(p => (
+            <div
+              key={p.id}
+              className="confetti-piece"
+              style={{
+                left: p.left,
+                top: '-10px',
+                width: p.size,
+                height: p.size,
+                background: p.color,
+                borderRadius: p.size > 10 ? '50%' : '2px',
+                transform: `rotate(${p.rotate}deg)`,
+                animationDelay: p.delay,
+              }}
+            />
+          ))}
+        </div>
+      );
+    };
+
+    /* ───────────────────────────────────────────
+       MESSAGES
+    ─────────────────────────────────────────── */
+    const getMsg = (steps) => {
+      if (steps === 0)         return { emoji:'👋', title:'¡Hola!', sub:'Un primer paso cambia el día. Loki está listo.' };
+      if (steps < 500)        return { emoji:'🌅', title:'¡Buen inicio!', sub:'Cada paso que das suma. ¡Sigue adelante!' };
+      if (steps < 1500)       return { emoji:'🚶', title:'Calentando motores', sub:'El ritmo ya está ahí. Vas genial.' };
+      if (steps < 3000)       return { emoji:'☀️', title:'Mañana en marcha', sub:'Tu cuerpo ya agradece el movimiento.' };
+      if (steps < 5000)       return { emoji:'💪', title:'¡Gran ritmo!', sub:'Ya vas por la mitad del camino.' };
+      if (steps < 7000)       return { emoji:'⚡', title:'¡Mitad superada!', sub:'Loki corre feliz a tu lado.' };
+      if (steps < 8500)       return { emoji:'🎯', title:'La meta se acerca', sub:'Menos de 2.500 pasos para conseguirlo.' };
+      if (steps < 9500)       return { emoji:'🏁', title:'¡Casi lo tienes!', sub:'El objetivo de salud está a un suspiro.' };
+      if (steps < 10000)      return { emoji:'🔥', title:'¡El último sprint!', sub:'¡Unos pocos pasos y lo consigues!' };
+      if (steps === 10000)    return { emoji:'🎉', title:'¡Objetivo conseguido!', sub:'¡10.000 pasos! Tu corazón te lo agradece.' };
+      if (steps < 12000)      return { emoji:'⭐', title:'¡Superando límites!', sub:'Modo elite activado. Sin frenos.' };
+      if (steps < 15000)      return { emoji:'🏆', title:'¡Imparable!', sub:'Loki apenas puede seguirte el ritmo.' };
+      return                         { emoji:'👑', title:'Leyenda en marcha', sub:'Rompes todos los récords de hoy.' };
+    };
+
+    /* ───────────────────────────────────────────
+       SEDENTARY NOTIFICATION
+    ─────────────────────────────────────────── */
+    const SedentaryNotif = ({ visible, exiting, onDismiss }) => {
+      if (!visible) return null;
+      return (
+        <div className={`fixed top-3 left-0 right-0 z-50 px-4 ${exiting ? 'notif-out' : 'notif-in'}`}>
+          <div
+            className="mx-auto max-w-sm rounded-2xl overflow-hidden"
+            style={{
+              background: 'rgba(255,255,255,0.97)',
+              backdropFilter: 'blur(24px)',
+              WebkitBackdropFilter: 'blur(24px)',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.18), 0 4px 16px rgba(166,63,36,0.12)',
+              border: '1px solid rgba(166,63,36,0.12)'
+            }}
+          >
+            {/* Top accent */}
+            <div style={{ height:'3px', background:'linear-gradient(90deg, #A63F24, #C9922A)' }}/>
+            <div className="flex items-start gap-3 p-4">
+              {/* App icon */}
+              <div
+                className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-md"
+                style={{ background:'linear-gradient(135deg, #C94E29, #A63F24)' }}
+              >
+                <span style={{ fontSize:'22px' }}>🐾</span>
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className="text-xs font-black" style={{ color:'#A63F24', letterSpacing:'0.06em' }}>
+                        JUSTSTEPS
+                      </span>
+                      <span className="text-xs" style={{ color:'#B8ADA8' }}>· ahora</span>
+                    </div>
+                    <p className="text-sm font-bold leading-snug" style={{ color:'#1A0A00' }}>
+                      Llevas demasiado tiempo parado.
+                    </p>
+                    <p className="text-xs mt-1 leading-snug" style={{ color:'#7A6A62' }}>
+                      Levántate y da una vuelta de 5 minutos. Loki te acompaña. 🐕
+                    </p>
+                  </div>
+                  <button
+                    onClick={onDismiss}
+                    className="text-gray-300 text-sm font-bold flex-shrink-0 mt-0.5 hover:text-gray-400 transition-colors"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    /* ───────────────────────────────────────────
+       MINI PROGRESS BAR
+    ─────────────────────────────────────────── */
+    const MiniBar = ({ steps }) => {
+      const pct = Math.min((steps / 10000) * 100, 100);
+      const isOver = steps > 10000;
+      return (
+        <div className="flex items-center gap-3 w-full px-1">
+          <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background:'#EDE5DF' }}>
+            <div
+              className="h-full rounded-full transition-all duration-700 ease-out"
+              style={{
+                width: `${pct}%`,
+                background: isOver
+                  ? 'linear-gradient(90deg, #A63F24, #C9922A)'
+                  : 'linear-gradient(90deg, #C94E29, #A63F24)',
+                boxShadow: pct > 5 ? `0 0 6px ${isOver ? 'rgba(201,146,42,0.4)' : 'rgba(166,63,36,0.3)'}` : 'none'
+              }}
+            />
+          </div>
+          <span
+            className="text-xs font-black w-10 text-right tabular-nums"
+            style={{ color: isOver ? '#C9922A' : '#A63F24' }}
+          >
+            {pct.toFixed(0)}%
+          </span>
+        </div>
+      );
+    };
+
+    /* ───────────────────────────────────────────
+       MAIN APP
+    ─────────────────────────────────────────── */
+    const App = () => {
+      const [steps, setSteps]           = useState(0);
+      const [restMode, setRestMode]     = useState(false);
+      const [walking, setWalking]       = useState(false);
+      const [alertVisible, setAlert]    = useState(false);
+      const [alertExit, setAlertExit]   = useState(false);
+      const [cardClass, setCardClass]   = useState('');
+      const [celebrating, setCelebrate] = useState(false);
+      const [showConfetti, setConfetti] = useState(false);
+      const walkTimer  = useRef(null);
+      const alertTimer = useRef(null);
+      const prevSteps  = useRef(0);
+
+      const msg = getMsg(steps);
+
+      /* ── Add steps ── */
+      const addSteps = useCallback((n) => {
+        setSteps(prev => {
+          const next = prev + n;
+          // Trigger 10k celebration
+          if (prev < 10000 && next >= 10000) {
+            setCelebrate(true);
+            setConfetti(true);
+            setTimeout(() => { setCelebrate(false); setConfetti(false); }, 3200);
+          }
+          prevSteps.current = next;
+          return next;
+        });
+        setWalking(true);
+        clearTimeout(walkTimer.current);
+        walkTimer.current = setTimeout(() => setWalking(false), 2200);
+      }, []);
+
+      /* ── Simulate inactivity ── */
+      const simulateInactivity = useCallback(() => {
+        setWalking(false);
+        clearTimeout(walkTimer.current);
+
+        if (restMode) {
+          // In rest mode, just show a softer feedback
+          setCardClass('card-heartbeat');
+          setTimeout(() => setCardClass(''), 1400);
+          return;
+        }
+
+        // Show notification
+        setAlertExit(false);
+        setAlert(true);
+
+        // Card shake (haptic simulation)
+        setCardClass('card-shake');
+        setTimeout(() => setCardClass(''), 1500);
+
+        // Auto-dismiss after 4.5s
+        clearTimeout(alertTimer.current);
+        alertTimer.current = setTimeout(() => {
+          setAlertExit(true);
+          setTimeout(() => { setAlert(false); setAlertExit(false); }, 400);
+        }, 4200);
+      }, [restMode]);
+
+      /* ── Dismiss alert ── */
+      const dismissAlert = useCallback(() => {
+        clearTimeout(alertTimer.current);
+        setAlertExit(true);
+        setTimeout(() => { setAlert(false); setAlertExit(false); }, 320);
+      }, []);
+
+      /* ── Reset ── */
+      const reset = useCallback(() => {
+        setSteps(0);
+        prevSteps.current = 0;
+        setWalking(false);
+        setAlert(false);
+        setAlertExit(false);
+        setCardClass('');
+        setCelebrate(false);
+        setConfetti(false);
+        clearTimeout(walkTimer.current);
+        clearTimeout(alertTimer.current);
+      }, []);
+
+      const todayStr = new Date().toLocaleDateString('es-ES', {
+        weekday: 'long', day: 'numeric', month: 'long'
+      });
+
+      const isOver = steps > 10000;
+
+      return (
+        <div
+          className="relative min-h-screen flex flex-col max-w-sm mx-auto select-none"
+          style={{ background:'#FFFFFF', paddingBottom:'env(safe-area-inset-bottom,0px)' }}
+        >
+
+          {/* ── Sedentary Notification ── */}
+          <SedentaryNotif
+            visible={alertVisible}
+            exiting={alertExit}
+            onDismiss={dismissAlert}
+          />
+
+          {/* ── 10k Celebration overlay ── */}
+          {celebrating && (
+            <div className="fixed inset-0 z-40 pointer-events-none flex items-center justify-center">
+              <div
+                className="celebrate-pop text-center px-8 py-6 rounded-3xl"
+                style={{
+                  background: 'rgba(255,255,255,0.95)',
+                  backdropFilter: 'blur(20px)',
+                  boxShadow: '0 20px 80px rgba(166,63,36,0.25)',
+                  border: '2px solid rgba(201,146,42,0.3)'
+                }}
+              >
+                <div style={{ fontSize:'52px' }}>🎉</div>
+                <div className="font-black text-xl mt-2" style={{ color:'#A63F24' }}>¡10.000 pasos!</div>
+                <div className="text-sm mt-1" style={{ color:'#7A6A62' }}>Objetivo de salud cumplido</div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Header ── */}
+          <div className="header-bg px-6 pt-12 pb-2 flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-black tracking-tight" style={{ color:'#A63F24', letterSpacing:'-0.03em' }}>
+                JustSteps
+              </h1>
+              <p className="text-xs mt-0.5 capitalize" style={{ color:'#B8ADA8' }}>
+                {todayStr}
+              </p>
+            </div>
+
+            {/* Rest Mode Button */}
+            <button
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl transition-all duration-350 btn-press relative overflow-hidden"
+              onClick={() => setRestMode(r => !r)}
+              style={{
+                background: restMode ? '#4A593D' : '#F5F0EC',
+                boxShadow: restMode
+                  ? '0 4px 16px rgba(74,89,61,0.35)'
+                  : '0 2px 10px rgba(0,0,0,0.07)',
+                transform: 'translateZ(0)'
+              }}
+            >
+              {restMode
+                ? <MoonIcon size={16} color="#C8DEC0"/>
+                : <SunIcon size={16} color="#C4B8B2"/>
+              }
+              <span
+                className="text-xs font-bold"
+                style={{ color: restMode ? '#C8DEC0' : '#B8ADA8' }}
+              >
+                {restMode ? 'Descanso' : 'Activo'}
+              </span>
+              {restMode && (
+                <span
+                  className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full animate-pulse"
+                  style={{ background:'#8BC87A' }}
+                />
+              )}
+            </button>
+          </div>
+
+          {/* Rest mode banner */}
+          {restMode && (
+            <div
+              className="mx-5 mb-1 px-4 py-2.5 rounded-2xl flex items-center gap-2"
+              style={{ background:'#EFF4EB', border:'1px solid #C8DEB8' }}
+            >
+              <MoonIcon size={13} color="#4A593D"/>
+              <p className="text-xs font-semibold" style={{ color:'#4A593D' }}>
+                Modo Descanso · Alertas pausadas · El día sigue activo
+              </p>
+            </div>
+          )}
+
+          {/* ── Progress Ring ── */}
+          <div className="flex flex-col items-center px-6 pt-4 pb-2">
+            <ProgressRing steps={steps} celebrating={celebrating}/>
+            <div className="w-full mt-4">
+              <MiniBar steps={steps}/>
+            </div>
+          </div>
+
+          {/* ── Loki Scene ── */}
+          <div className="mx-4 mb-3">
+            <div
+              className="rounded-3xl px-3 pt-2 pb-3 relative overflow-hidden"
+              style={{ background:'#FAF6F2', border:'1px solid #EDE5DF' }}
+            >
+              {showConfetti && <Confetti/>}
+              <LokiScene steps={steps} walking={walking}/>
+            </div>
+          </div>
+
+          {/* ── Message Card ── */}
+          <div className="mx-4 mb-4">
+            <div
+              className={`rounded-3xl p-5 relative transition-all duration-300 ${cardClass}`}
+              style={{
+                background: 'linear-gradient(135deg, #FEFAF7 0%, #F8F0E9 100%)',
+                border: `1.5px solid ${alertVisible ? 'rgba(166,63,36,0.3)' : '#EDE5DF'}`,
+                boxShadow: alertVisible
+                  ? '0 6px 24px rgba(166,63,36,0.15)'
+                  : '0 4px 20px rgba(166,63,36,0.06)'
+              }}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0"
+                  style={{
+                    background: isOver ? 'rgba(201,146,42,0.1)' : 'rgba(166,63,36,0.08)',
+                    fontSize: '22px'
+                  }}
+                >
+                  {msg.emoji}
+                </div>
+                <div>
+                  <p className="font-bold text-[15px] leading-tight" style={{ color:'#1A0A00' }}>
+                    {msg.title}
+                  </p>
+                  <p className="text-sm mt-1 leading-snug" style={{ color:'#9CA3AF' }}>
+                    {msg.sub}
+                  </p>
+                </div>
+              </div>
+
+              {/* Second lap badge */}
+              {isOver && (
+                <div
+                  className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-xl w-fit"
+                  style={{ background:'rgba(201,146,42,0.12)' }}
+                >
+                  <span style={{ fontSize:'12px' }}>✦</span>
+                  <span className="text-xs font-bold" style={{ color:'#A87820' }}>
+                    Modo élite activado · Sin límites
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Simulation Controls ── */}
+          <div className="mx-4 mb-8">
+            <p
+              className="text-center text-xs font-bold mb-3 tracking-widest"
+              style={{ color:'#D9D0CB', letterSpacing:'0.14em' }}
+            >
+              SIMULACIÓN
+            </p>
+            <div className="grid grid-cols-3 gap-2.5">
+
+              {/* +1000 steps */}
+              <button
+                onClick={() => addSteps(1000)}
+                className="btn-press flex flex-col items-center justify-center py-4 rounded-2xl transition-all duration-150"
+                style={{
+                  background:'#FEF3EF',
+                  border:'1.5px solid #FBDDD1',
+                }}
+              >
+                <span className="text-xl font-black leading-none" style={{ color:'#A63F24' }}>
+                  +1K
+                </span>
+                <span className="text-xs mt-1 font-semibold" style={{ color:'#D4937F' }}>
+                  pasos
+                </span>
+              </button>
+
+              {/* Inactivity */}
+              <button
+                onClick={simulateInactivity}
+                className="btn-press flex flex-col items-center justify-center py-4 rounded-2xl transition-all duration-150"
+                style={{
+                  background:'#F5F1EE',
+                  border:'1.5px solid #E8DFDA',
+                }}
+              >
+                <span style={{ fontSize:'22px', lineHeight:1 }}>⏸</span>
+                <span className="text-xs mt-1 font-semibold" style={{ color:'#9CA3AF' }}>
+                  3h parado
+                </span>
+              </button>
+
+              {/* Reset */}
+              <button
+                onClick={reset}
+                className="btn-press flex flex-col items-center justify-center py-4 rounded-2xl transition-all duration-150"
+                style={{
+                  background:'#EFF4EB',
+                  border:'1.5px solid #D0E0C4',
+                }}
+              >
+                <div className="flex items-center justify-center" style={{ color:'#4A593D' }}>
+                  <RotateCCWIcon size={20} color="#4A593D"/>
+                </div>
+                <span className="text-xs mt-1 font-semibold" style={{ color:'#6B8C60' }}>
+                  reiniciar
+                </span>
+              </button>
+
+            </div>
+
+            {/* Philosophy tagline */}
+            <p
+              className="text-center text-xs mt-5"
+              style={{ color:'#D9D0CB', letterSpacing:'0.06em', fontStyle:'italic' }}
+            >
+              Cero fricción · Cero complicaciones · Solo salud
+            </p>
+          </div>
+
+        </div>
+      );
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
