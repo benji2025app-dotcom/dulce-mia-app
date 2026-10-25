@@ -260,6 +260,7 @@ button.chip:hover{border-color:var(--accent)}
       <button class="ib" id="aMovie"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Recuerdo en vídeo</button>
       <button class="ib" id="aAI" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>Notas con IA</button>
       <button class="ib" id="aEdit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>Editar</button>
+      <button class="ib" id="aRe" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>Rehacer notas</button>
       <button class="ib" id="aAdd" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Añadir fotos</button>
       <button class="ib" id="aDel" hidden>Borrar álbum</button>
     </div>
@@ -398,7 +399,8 @@ async function importImage(f){
   if(bmp.close) bmp.close();
   if(!big.blob) throw new Error("encode");
   const p=placeOf(ex?.lat,ex?.lon);
-  return {id:uid(),kind:"photo",blob:big.blob,thumb:th.blob,w:big.w,h:big.h,date:ex?.date||f.lastModified||Date.now(),lat:ex?.lat??null,lon:ex?.lon??null,city:p?.city||null,country:p?.country||null};
+  const scene=await analyzeBlob(th.blob);
+  return {id:uid(),kind:"photo",scene,blob:big.blob,thumb:th.blob,w:big.w,h:big.h,date:ex?.date||f.lastModified||Date.now(),lat:ex?.lat??null,lon:ex?.lon??null,city:p?.city||null,country:p?.country||null};
 }
 /* Vídeos: el iPhone a veces no deja sacar un fotograma sin reproducir; si no se puede, se usa una portada genérica y el vídeo entra igual */
 function waitEv(el,evs,ms){ return new Promise(res=>{ let done=false; const fin=v=>{ if(done) return; done=true; clearTimeout(t); evs.forEach(e=>el.removeEventListener(e,h)); res(v); }; const h=()=>fin(true); const t=setTimeout(()=>fin(false),ms); evs.forEach(e=>el.addEventListener(e,h)); }); }
@@ -450,22 +452,58 @@ async function importFiles(files,onProg){
 }
 
 /* ================= montaje automático ================= */
+/* Notas según lo que se ve (colores de la foto); si no está claro, solo momento del día y lugar, sin inventar actividades */
 const NOTES={
-  morning:["Buenos días{en}","Café y planes","Primera hora{en}","Empieza el día{en}"],
-  noon:["Paseando{por}","Calles{de}","Sin prisa{por}","Perdidos{por}"],
-  lunch:["Hora de comer","Mesa larga y sobremesa","Comida{en}","Aquí se comía bien"],
-  afternoon:["Tarde{en}","Un rato más","Luz de tarde{en}","Seguimos andando"],
+  water:["Al agua{en}","Remojón{en}","Día de piscina","Chapuzón y sol","Fresquitos en el agua","Aquí no se sale del agua"],
+  beach:["Día de playa{en}","Pies en la arena","Arena, mar y nosotros","Toalla y sol{en}"],
+  lights:["Luces{de}","Todo iluminado","Brillando de noche","Paseo entre luces"],
+  night:["Noche{en}","De noche{por}","Cae la noche","Volviendo tarde"],
   sunset:["Atardecer{en}","Última luz del día","Cielo de película"],
-  night:["Noche{en}","Cena y risas","Volviendo tarde","{City} de noche"],
+  outdoor:["Al aire libre{en}","Día de sol{en}","Bajo el cielo{de}","Fuera se está bien"],
+  morning:["Mañana{en}","Primera hora{en}","Empieza el día"],
+  noon:["Mediodía{en}","A media mañana","Un día cualquiera{en}"],
+  afternoon:["Tarde{en}","Pasando la tarde","Ratitos de tarde"],
+  evening:["Al caer la tarde","Última hora{en}"],
   video:["En movimiento","Para volver a oírlo","Esto hay que verlo"]
 };
-function noteFor(m,city,used){
+function noteFor(group,city,used){
+  const m=group[0];
+  const scenes=countBy(group.map(x=>x.scene).filter(Boolean));
   const h=new Date(m.date).getHours();
-  const k= m.kind==="video"?"video": h<11?"morning": h<13?"noon": h<16?"lunch": h<19?"afternoon": h<21?"sunset":"night";
-  const fill=s=>s.replace("{en}",city?` en ${city}`:"").replace("{por}",city?` por ${city}`:"").replace("{de}",city?` de ${city}`:"").replace("{City}",city||"La ciudad");
-  const opts=NOTES[k].filter(s=>city||!s.includes("{City}")).map(fill);
-  const pick=opts.find(s=>!used.has(s))||opts[0];
+  const nightTime=h>=20||h<6;
+  let sc=scenes[0]||null;
+  if(sc==="warmlit") sc=(h>=18||h<7)?"lights":null;
+  if(sc==="outdoor"&&nightTime) sc="night";
+  let k= m.kind==="video"?"video" : sc || (h<11?"morning": h<15?"noon": h<19?"afternoon": h<21?"evening":"night");
+  const fill=s=>s.replace("{en}",city?` en ${city}`:"").replace("{por}",city?` por ${city}`:"").replace("{de}",city?` de ${city}`:"");
+  const opts=(NOTES[k]||NOTES.noon).map(fill);
+  const pick=opts.find(s=>!used.has(s))||opts[hash(m.id)%opts.length];
   used.add(pick); return pick;
+}
+async function analyzeBlob(blob){
+  try{
+    const bmp=await decodeImage(blob); const S=48;
+    const c=document.createElement("canvas"); c.width=S; c.height=S; const x=c.getContext("2d",{willReadFrequently:true}); x.drawImage(bmp,0,0,S,S); if(bmp.close) bmp.close();
+    const d=x.getImageData(0,0,S,S).data, N=S*S, top=Math.round(S*.4);
+    let lum=0,water=0,sky=0,green=0,warm=0,sunset=0,sand=0,dark=0;
+    for(let i=0;i<N;i++){
+      const r=d[i*4],g=d[i*4+1],b=d[i*4+2], y=Math.floor(i/S);
+      const L=.299*r+.587*g+.114*b, mx=Math.max(r,g,b), mn=Math.min(r,g,b), sat=mx?(mx-mn)/mx:0;
+      lum+=L; if(L<45) dark++;
+      if(b>r+30&&b>=g-15&&sat>.25&&L>60){ if(y>=top) water++; else sky++; }
+      if(g>r+8&&g>b+5&&sat>.2) green++;
+      if(r>200&&g>150&&b<150&&L>165) warm++;
+      if(y<S/2&&r>170&&r>g+25&&r>b+40) sunset++;
+      if(y>=S/2&&r>165&&g>140&&b>100&&r>b+25&&sat>.1&&sat<.42) sand++;
+    }
+    lum/=N; dark/=N; water/=(N*(S-top)/S); sky/=(N*top/S); green/=N; warm/=N; sunset/=(N/2); sand/=(N/2);
+    if(water>.25||(water>.12&&(sky>.2||green>.15))) return sand>.12?"beach":"water";
+    if(lum<60||dark>.5) return "night";
+    if(warm>.04) return "warmlit";
+    if(sand>.3&&sky>.2) return "beach";
+    if(green>.22||sky>.35) return "outdoor";
+    return null;
+  }catch(e){ return null; }
 }
 function slotsFor(items){
   const n=items.length, ar=items.map(m=>m.w/m.h);
@@ -486,7 +524,7 @@ function buildPages(items,dayOffset,used){
     const flush=()=>{ let i=0; while(i<seg.length){ let n=pattern[pi++%pattern.length]; const rem=seg.length-i; if(n>rem) n=rem; if(rem-n===1&&n>=3) n--; groups.push(seg.slice(i,i+n)); i+=n; } seg=[]; };
     for(const m of d.items){ if(m.kind==="video"){ flush(); groups.push([m]); pi++; } else seg.push(m); }
     flush();
-    groups.forEach(g=>pages.push({id:uid(),day:di+dayOffset,label,items:g.map(m=>m.id),note:noteFor(g[0],city,used)}));
+    groups.forEach(g=>pages.push({id:uid(),day:di+dayOffset,label,items:g.map(m=>m.id),note:noteFor(g,city,used)}));
   });
   return pages;
 }
@@ -863,11 +901,18 @@ function setEditing(on){
   $("#aEdit").classList.toggle("on",on); $("#aEdit").lastChild.textContent= on? "Listo":"Editar";
   $("#edithint").hidden=!on;
   const own=cur&&!cur.demo;
-  $("#aAdd").hidden=!(on&&own); $("#aDel").hidden=!(on&&own); $("#aDel").textContent="Borrar álbum";
+  $("#aAdd").hidden=!(on&&own); $("#aDel").hidden=!(on&&own); $("#aRe").hidden=!(on&&own); $("#aDel").textContent="Borrar álbum";
   $("#aMovie").hidden=on; $("#aAI").hidden= on || !aiReady;
   if(cur) paint();
 }
 $("#aEdit").onclick=()=>{ setEditing(!editing); if(!editing) saveAlbum(cur); if(editing && cur.demo) toast("Es el ejemplo: puedes tocar todo, pero no se guarda"); };
+$("#aRe").onclick=async()=>{
+  const a=cur; if(!a) return; $("#aRe").disabled=true; toast("Mirando tus fotos…",0);
+  for(const p of a.pages) for(const id of p.items){ const m=mem.media.get(id); if(m&&m.scene===undefined){ m.scene=await analyzeBlob(m.thumb||m.blob); putMedia(m); } }
+  const used=new Set();
+  a.pages.forEach(p=>{ const g=p.items.map(id=>mem.media.get(id)).filter(Boolean); const city=countBy(g.map(m=>m.city).filter(Boolean))[0]||null; if(g.length) p.note=noteFor(g,city,used); });
+  saveAlbum(a); paint(); $("#aRe").disabled=false; toast("Notas nuevas puestas. Toca cualquiera para cambiarla.");
+};
 $("#aAdd").onclick=()=>{ pickMode="add"; armPick(); picker.click(); };
 $("#aDel").onclick=async()=>{
   if(!delArmed){ delArmed=true; $("#aDel").textContent="Toca otra vez para borrar"; $("#aDel").style.color="#F0A49B"; setTimeout(()=>{ delArmed=false; $("#aDel").textContent="Borrar álbum"; $("#aDel").style.color=""; },4000); return; }
