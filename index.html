@@ -400,21 +400,32 @@ async function importImage(f){
   const p=placeOf(ex?.lat,ex?.lon);
   return {id:uid(),kind:"photo",blob:big.blob,thumb:th.blob,w:big.w,h:big.h,date:ex?.date||f.lastModified||Date.now(),lat:ex?.lat??null,lon:ex?.lon??null,city:p?.city||null,country:p?.country||null};
 }
-function importVideo(f){
-  return new Promise((res,rej)=>{
-    const u=URL.createObjectURL(f), v=document.createElement("video");
-    v.muted=true; v.playsInline=true; v.preload="auto"; v.src=u;
-    const fail=()=>{ URL.revokeObjectURL(u); rej(new Error("video")); };
-    const to=setTimeout(fail,15000);
-    v.onerror=()=>{clearTimeout(to);fail();};
-    v.onloadedmetadata=()=>{ try{ v.currentTime=Math.min(.6,(v.duration||1)/3); }catch(e){} };
-    v.onseeked=async()=>{
-      clearTimeout(to);
-      let thumb=null; try{ thumb=(await downscale(v,640,.8)).blob; }catch(e){}
-      URL.revokeObjectURL(u);
-      res({id:uid(),kind:"video",blob:f,thumb,w:v.videoWidth||16,h:v.videoHeight||9,dur:v.duration||0,date:f.lastModified||Date.now(),lat:null,lon:null,city:null,country:null});
-    };
-  });
+/* Vídeos: el iPhone a veces no deja sacar un fotograma sin reproducir; si no se puede, se usa una portada genérica y el vídeo entra igual */
+function waitEv(el,evs,ms){ return new Promise(res=>{ let done=false; const fin=v=>{ if(done) return; done=true; clearTimeout(t); evs.forEach(e=>el.removeEventListener(e,h)); res(v); }; const h=()=>fin(true); const t=setTimeout(()=>fin(false),ms); evs.forEach(e=>el.addEventListener(e,h)); }); }
+async function placeholderThumb(w,h){
+  const c=document.createElement("canvas"); const k=640/Math.max(w,h); c.width=Math.round(w*k); c.height=Math.round(h*k);
+  const x=c.getContext("2d"); const g=x.createLinearGradient(0,0,c.width,c.height); g.addColorStop(0,"#2B3A33"); g.addColorStop(1,"#121614"); x.fillStyle=g; x.fillRect(0,0,c.width,c.height);
+  x.fillStyle="rgba(255,255,255,.85)"; const s=Math.min(c.width,c.height)*.16, cx=c.width/2, cy=c.height/2; x.beginPath(); x.moveTo(cx-s*.6,cy-s); x.lineTo(cx+s,cy); x.lineTo(cx-s*.6,cy+s); x.fill();
+  return canvasBlob(c,.8);
+}
+async function importVideo(f){
+  const u=URL.createObjectURL(f), v=document.createElement("video");
+  v.muted=true; v.defaultMuted=true; v.playsInline=true; v.setAttribute("playsinline",""); v.setAttribute("muted",""); v.preload="auto"; v.src=u;
+  try{ v.load(); }catch(e){}
+  let w=0,h=0,dur=0,thumb=null;
+  try{
+    if(await waitEv(v,["loadedmetadata","error"],6000)){ w=v.videoWidth; h=v.videoHeight; dur=v.duration||0; }
+    if(w){
+      try{ v.currentTime=Math.min(.5,(dur||1)/3); }catch(e){}
+      let ok=await waitEv(v,["seeked","loadeddata"],3000);
+      if(!ok||v.readyState<2){ try{ await Promise.race([v.play(),new Promise(r=>setTimeout(r,2000))]); ok=await waitEv(v,["timeupdate"],2500); v.pause(); }catch(e){} }
+      if(v.readyState>=2){ try{ thumb=(await downscale(v,640,.8)).blob; }catch(e){} }
+    }
+  }catch(e){}
+  URL.revokeObjectURL(u);
+  if(!w){ w=16; h=9; }
+  if(!thumb) thumb=await placeholderThumb(w,h);
+  return {id:uid(),kind:"video",blob:f,thumb,w,h,dur,date:f.lastModified||Date.now(),lat:null,lon:null,city:null,country:null};
 }
 async function importFiles(files,onProg){
   const items=[], skipped=[]; let i=0;
@@ -425,6 +436,15 @@ async function importFiles(files,onProg){
       const job=isVid? importVideo(f) : importImage(f);
       items.push(await Promise.race([job,new Promise((_,rej)=>setTimeout(()=>rej(new Error("tiempo")),isVid?30000:20000))]));
     }catch(e){ skipped.push(f.name); }
+  }
+  /* El iPhone entrega los vídeos con la fecha de hoy: si caen fuera del viaje, los coloco junto a la foto elegida antes que ellos */
+  const ph=items.filter(m=>m.kind==="photo");
+  if(ph.length){
+    const ds=ph.map(m=>m.date), lo=Math.min(...ds)-43200000, hi=Math.max(...ds)+43200000;
+    items.forEach((m,i)=>{ if(m.kind!=="video"||(m.date>=lo&&m.date<=hi)) return;
+      let ref=null; for(let j=i-1;j>=0&&!ref;j--) if(items[j].kind==="photo") ref=items[j];
+      for(let j=i+1;j<items.length&&!ref;j++) if(items[j].kind==="photo") ref=items[j];
+      if(ref){ m.date=ref.date+1000; m.city=ref.city; m.country=ref.country; } });
   }
   return {items,skipped};
 }
